@@ -1,8 +1,11 @@
 {
   "name": "discord-complaint-bot",
   "version": "1.0.0",
-  "description": "A Discord bot for handling complaints",
+  "description": "A simple Discord complaint bot",
   "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
   "dependencies": {
     "discord.js": "^14.0.0"
   }
