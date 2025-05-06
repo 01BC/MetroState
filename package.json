@@ -1,13 +1,9 @@
 {
-  "name": "discord-complaint-bot",
+  "name": "discord-bot",
   "version": "1.0.0",
-  "description": "A Discord bot for handling complaints with ticket IDs",
   "main": "bot.js",
-  "scripts": {
-    "start": "node bot.js"
-  },
   "dependencies": {
+    "discord.js": "^14.14.1",
     "dotenv": "^16.0.3"
-    "discord.js": "^14.0.0"
   }
 }
