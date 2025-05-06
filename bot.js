@@ -13,6 +13,7 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
 const client = new Client({
   intents: [
@@ -24,10 +25,9 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-// Constants
 const METRO_ROLE_ID = '1369107890891264090';
 const CATEGORY_ID = '1369428896784711732';
-const COMPLAINT_CHANNEL_NAME = 'complaints-system';
+const COMPLAINTS_CHANNEL_ID = process.env.COMPLAINTS_CHANNEL_ID;
 
 const OPTIONS = {
   report_player: 'player',
@@ -42,80 +42,73 @@ function randomID() {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-// Ready
+// READY
 client.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${client.user.tag}`);
-
-  const channel = client.channels.cache.find(ch => ch.name === COMPLAINT_CHANNEL_NAME);
-  if (!channel) return console.error('complaints-system channel not found');
-
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId('complaint_select')
-    .setPlaceholder('Choose a complaint type...')
-    .addOptions([
-      { label: 'Report a Player', value: 'report_player' },
-      { label: 'Report a MetroAssist Member', value: 'report_metro' },
-      { label: 'Report a Faction Leader', value: 'report_faction' },
-      { label: 'Request Technical Support', value: 'tech_support' },
-      { label: 'Report a Bug', value: 'report_bug' }
-    ]);
-
-  const row = new ActionRowBuilder().addComponents(menu);
-  await channel.send({ content: '**Open a complaint ticket:**', components: [row] });
 });
 
-// Interactions
+// INTERACTIONS
 client.on(Events.InteractionCreate, async interaction => {
+  if (interaction.isChatInputCommand()) return;
+
+  // Handle dropdown selection
   if (interaction.isStringSelectMenu() && interaction.customId === 'complaint_select') {
     const typeKey = interaction.values[0];
     const type = OPTIONS[typeKey];
     const id = randomID();
     const channelName = `${type}-${id}`;
 
-    const guild = interaction.guild;
-    const member = interaction.member;
+    try {
+      const guild = interaction.guild;
+      const member = interaction.member;
 
-    const channel = await guild.channels.create({
-      name: channelName,
-      type: 0, // GUILD_TEXT
-      parent: CATEGORY_ID,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone,
-          deny: [PermissionsBitField.Flags.ViewChannel]
-        },
-        {
-          id: member.id,
-          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
-        },
-        {
-          id: METRO_ROLE_ID,
-          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
-        }
-      ]
-    });
+      const channel = await guild.channels.create({
+        name: channelName,
+        type: 0,
+        parent: CATEGORY_ID,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone,
+            deny: [PermissionsBitField.Flags.ViewChannel]
+          },
+          {
+            id: member.id,
+            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
+          },
+          {
+            id: METRO_ROLE_ID,
+            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
+          }
+        ]
+      });
 
-    const closeBtn = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('close_ticket')
-        .setLabel('Close Ticket')
-        .setStyle(ButtonStyle.Danger)
-    );
+      const closeBtn = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('close_ticket')
+          .setLabel('Close Ticket')
+          .setStyle(ButtonStyle.Danger)
+      );
 
-    await channel.send({
-      content: `<@${member.id}> <@&${METRO_ROLE_ID}> New ticket created.`,
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('New Complaint')
-          .setDescription(`**Type:** ${type.replace('_', ' ')}\n**User:** ${member.user.tag}`)
-          .setColor(0x00b0f4)
-      ],
-      components: [closeBtn]
-    });
+      await channel.send({
+        content: `<@${member.id}> <@&${METRO_ROLE_ID}> New ticket created.`,
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('New Complaint')
+            .setDescription(`**Type:** ${type.replace('_', ' ')}\n**User:** ${member.user.tag}`)
+            .setColor(0x00b0f4)
+        ],
+        components: [closeBtn]
+      });
 
-    return interaction.reply({ content: `✅ Your ticket has been created: ${channel}`, ephemeral: true });
+      await interaction.reply({ content: `✅ Your ticket has been created: ${channel}`, ephemeral: true });
+
+    } catch (err) {
+      console.error('Error creating ticket:', err);
+      await interaction.reply({ content: 'There was an error creating your ticket.', ephemeral: true });
+    }
   }
 
+  // Handle ticket close
   if (interaction.isButton() && interaction.customId === 'close_ticket') {
     const channel = interaction.channel;
     const messages = await channel.messages.fetch({ limit: 100 });
@@ -158,6 +151,27 @@ client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isButton() && interaction.customId.startsWith('rate_')) {
     const rating = interaction.customId.split('_')[1];
     await interaction.reply({ content: `Thanks for rating us **${rating}⭐**!`, ephemeral: true });
+  }
+});
+
+// MANUAL COMMAND to POST the Dropdown Menu (Run once, then delete it)
+client.on('messageCreate', async message => {
+  if (message.content === '!sendmenu') {
+    if (message.channel.id !== COMPLAINTS_CHANNEL_ID) return;
+
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId('complaint_select')
+      .setPlaceholder('Choose a complaint type...')
+      .addOptions([
+        { label: 'Report a Player', value: 'report_player' },
+        { label: 'Report a MetroAssist Member', value: 'report_metro' },
+        { label: 'Report a Faction Leader', value: 'report_faction' },
+        { label: 'Request Technical Support', value: 'tech_support' },
+        { label: 'Report a Bug', value: 'report_bug' }
+      ]);
+
+    const row = new ActionRowBuilder().addComponents(menu);
+    await message.channel.send({ content: '**Open a complaint ticket:**', components: [row] });
   }
 });
 
