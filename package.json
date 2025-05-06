@@ -1,7 +1,8 @@
+// package.json
 {
   "name": "discord-complaint-bot",
   "version": "1.0.0",
-  "description": "A simple Discord complaint bot",
+  "description": "A Discord bot for handling complaints with ticket IDs",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
