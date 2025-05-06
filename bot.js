@@ -7,11 +7,9 @@ const {
   ButtonBuilder,
   ButtonStyle,
   Events,
-  TextInputBuilder,
-  TextInputStyle,
-  ModalBuilder,
   EmbedBuilder,
-  AttachmentBuilder
+  AttachmentBuilder,
+  PermissionsBitField
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -20,24 +18,23 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ],
   partials: [Partials.Channel]
 });
 
-// Role and Category IDs
+// Constants
 const METRO_ROLE_ID = '1369107890891264090';
 const CATEGORY_ID = '1369428896784711732';
 const COMPLAINT_CHANNEL_NAME = 'complaints-system';
 
-// Dropdown options
 const OPTIONS = {
-  'report_player': 'player',
-  'report_metro': 'metroassist',
-  'report_faction': 'factionleader',
-  'tech_support': 'tech',
-  'report_bug': 'bug'
+  report_player: 'player',
+  report_metro: 'metroassist',
+  report_faction: 'factionleader',
+  tech_support: 'tech',
+  report_bug: 'bug'
 };
 
 function randomID() {
@@ -45,15 +42,16 @@ function randomID() {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
+// Ready
 client.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const channel = client.channels.cache.find(ch => ch.name === COMPLAINT_CHANNEL_NAME);
-  if (!channel) return console.error('Complaint channel not found.');
+  if (!channel) return console.error('complaints-system channel not found');
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId('complaint_select')
-    .setPlaceholder('Select complaint type...')
+    .setPlaceholder('Choose a complaint type...')
     .addOptions([
       { label: 'Report a Player', value: 'report_player' },
       { label: 'Report a MetroAssist Member', value: 'report_metro' },
@@ -66,65 +64,79 @@ client.once(Events.ClientReady, async () => {
   await channel.send({ content: '**Open a complaint ticket:**', components: [row] });
 });
 
+// Interactions
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isStringSelectMenu() && interaction.customId === 'complaint_select') {
     const typeKey = interaction.values[0];
     const type = OPTIONS[typeKey];
     const id = randomID();
+    const channelName = `${type}-${id}`;
 
-    const parent = interaction.channel;
-    const thread = await parent.threads.create({
-      name: `${type}-${id}`,
-      autoArchiveDuration: 1440,
-      type: 12,
-      reason: `Ticket by ${interaction.user.tag}`
+    const guild = interaction.guild;
+    const member = interaction.member;
+
+    const channel = await guild.channels.create({
+      name: channelName,
+      type: 0, // GUILD_TEXT
+      parent: CATEGORY_ID,
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone,
+          deny: [PermissionsBitField.Flags.ViewChannel]
+        },
+        {
+          id: member.id,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
+        },
+        {
+          id: METRO_ROLE_ID,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
+        }
+      ]
     });
 
-    await thread.members.add(interaction.user.id);
-
-    // MetroAssist can view it if they have "View Private Threads" in parent channel
-    await thread.send({
-      content: `<@${interaction.user.id}> <@&${METRO_ROLE_ID}> New complaint received!`,
-      embeds: [new EmbedBuilder().setTitle('New Complaint').setDescription(`Type: **${type.replace('_', ' ')}**`).setColor(0xff0000)]
-    });
-
-    // Move thread to category
-    const guildChannel = await interaction.guild.channels.fetch(thread.id);
-    await guildChannel.setParent(CATEGORY_ID);
-
-    // Add "Close Ticket" button
-    const closeButton = new ActionRowBuilder().addComponents(
+    const closeBtn = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('close_ticket')
         .setLabel('Close Ticket')
         .setStyle(ButtonStyle.Danger)
     );
-    await thread.send({ content: 'Click to close this ticket.', components: [closeButton] });
 
-    return interaction.reply({ content: `✅ Ticket created: ${thread}`, ephemeral: true });
+    await channel.send({
+      content: `<@${member.id}> <@&${METRO_ROLE_ID}> New ticket created.`,
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('New Complaint')
+          .setDescription(`**Type:** ${type.replace('_', ' ')}\n**User:** ${member.user.tag}`)
+          .setColor(0x00b0f4)
+      ],
+      components: [closeBtn]
+    });
+
+    return interaction.reply({ content: `✅ Your ticket has been created: ${channel}`, ephemeral: true });
   }
 
   if (interaction.isButton() && interaction.customId === 'close_ticket') {
-    const thread = interaction.channel;
-    const messages = await thread.messages.fetch({ limit: 100 });
+    const channel = interaction.channel;
+    const messages = await channel.messages.fetch({ limit: 100 });
     const transcript = messages
       .filter(m => !m.author.bot)
       .map(m => `${m.author.tag}: ${m.content}`)
       .reverse()
       .join('\n');
 
-    const filename = `transcript-${thread.name}.txt`;
-    const filePath = path.join(__dirname, filename);
+    const filePath = path.join(__dirname, `${channel.name}-transcript.txt`);
     fs.writeFileSync(filePath, transcript);
 
-    const user = thread.members.cache.find(m => !m.user.bot);
+    const opener = channel.members.find(m => !m.user.bot);
+
     try {
-      await user.send({
-        content: 'Here’s your complaint transcript.',
+      await opener.user.send({
+        content: 'Here’s the transcript of your ticket.',
         files: [new AttachmentBuilder(filePath)]
       });
 
-      const ratingButtons = new ActionRowBuilder().addComponents(
+      const ratingRow = new ActionRowBuilder().addComponents(
         [1, 2, 3, 4, 5].map(num =>
           new ButtonBuilder()
             .setCustomId(`rate_${num}`)
@@ -132,20 +144,20 @@ client.on(Events.InteractionCreate, async interaction => {
             .setStyle(ButtonStyle.Secondary)
         )
       );
-      await user.send({ content: 'Rate your support experience:', components: [ratingButtons] });
+
+      await opener.user.send({ content: 'Please rate your experience:', components: [ratingRow] });
     } catch (err) {
-      console.error('Could not DM transcript.');
+      console.error('Could not DM user transcript.');
     }
 
-    fs.unlinkSync(filePath); // delete file
-
-    await thread.send('This ticket is now closed.');
-    setTimeout(() => thread.delete(), 15000);
+    fs.unlinkSync(filePath);
+    await channel.send('This ticket will close in 15 seconds...');
+    setTimeout(() => channel.delete(), 15000);
   }
 
   if (interaction.isButton() && interaction.customId.startsWith('rate_')) {
     const rating = interaction.customId.split('_')[1];
-    await interaction.reply({ content: `Thanks for rating this ticket **${rating}⭐**!`, ephemeral: true });
+    await interaction.reply({ content: `Thanks for rating us **${rating}⭐**!`, ephemeral: true });
   }
 });
 
