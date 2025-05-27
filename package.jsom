@@ -1,0 +1,15 @@
+{
+  "name": "metrostate-site",
+  "version": "1.0.0",
+  "description": "MetroState website",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "playfab-sdk": "^2.136.230424",
+    "dotenv": "^16.0.0",
+    "cors": "^2.8.5"
+  }
+}
