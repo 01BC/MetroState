@@ -8,6 +8,7 @@ function showAuth() {
 function showDashboard() {
     $('#auth-section, #admin-panel').hide();
     $('#dashboard').show();
+    loadDashboard();
 }
 
 function showAdminPanel() {
@@ -20,7 +21,6 @@ $('#signup-form').submit((e) => {
     const email = $('#signup-email').val();
     const password = $('#signup-password').val();
     const username = $('#signup-username').val();
-
     PlayFabClientSDK.RegisterPlayFabUser({
         Email: email,
         Password: password,
@@ -40,7 +40,6 @@ $('#login-form').submit((e) => {
     e.preventDefault();
     const email = $('#login-email').val();
     const password = $('#login-password').val();
-
     PlayFabClientSDK.LoginWithEmailAddress({
         Email: email,
         Password: password
@@ -52,7 +51,6 @@ $('#login-form').submit((e) => {
             localStorage.setItem('sessionTicket', result.data.SessionTicket);
             localStorage.setItem('username', email.split('@')[0]);
             showDashboard();
-            loadDashboard();
         }
     });
 });
@@ -64,7 +62,7 @@ $('#logout').click(() => {
     showAuth();
 });
 
-function loadDashboard() {
+async function loadDashboard() {
     const playFabId = localStorage.getItem('playFabId');
     if (!playFabId) {
         showAuth();
@@ -73,31 +71,30 @@ function loadDashboard() {
 
     $('#username').text(localStorage.getItem('username'));
 
-    PlayFabClientSDK.GetTitleData({ Keys: ['Servers', 'Jobs', 'Factions', 'CratesTitleData', 'AdminRoles'] }, (result, error) => {
-        if (error) {
-            console.error('GetTitleData error:', error);
-            alert(`Error loading data: ${error.errorMessage}`);
-            return;
-        }
+    try {
+        const titleData = await new Promise((resolve, reject) => {
+            PlayFabClientSDK.GetTitleData({
+                Keys: ['Servers', 'Jobs', 'Factions', 'CratesTitleData', 'AdminRoles']
+            }, (result, error) => error ? reject(error) : resolve(result));
+        });
 
-        const serversData = JSON.parse(result.data.Data.Servers);
-        const jobs = JSON.parse(result.data.Data.Jobs);
-        const factions = JSON.parse(result.data.Data.Factions);
-        const crates = JSON.parse(result.data.Data.CratesTitleData).Crates;
-        const adminRoles = JSON.parse(result.data.Data.AdminRoles);
+        const serversData = JSON.parse(titleData.data.Data.Servers);
+        const jobs = JSON.parse(titleData.data.Data.Jobs);
+        const factions = JSON.parse(titleData.data.Data.Factions);
+        const crates = JSON.parse(titleData.data.Data.CratesTitleData).Crates;
+        const adminRoles = JSON.parse(titleData.data.Data.AdminRoles);
 
         const regionSelects = ['#region-select', '#inventory-region', '#promo-region', '#store-region', '#crate-region', '#daily-crate-region', '#gang-region'];
-        regionSelects.forEach(sel => {
+        const serverSelects = ['#server-select', '#inventory-server', '#promo-server', '#store-server', '#crate-server', '#daily-crate-server', '#gang-server'];
+
+        regionSelects.forEach((sel, index) => {
             $(sel).html('<option value="">Select Region</option>');
             serversData.regions.forEach(region => {
                 $(sel).append(`<option value="${region.id}">${region.name}</option>`);
             });
-        });
 
-        const serverSelects = ['#server-select', '#inventory-server', '#promo-server', '#store-server', '#crate-server', '#daily-crate-server', '#gang-server'];
-        regionSelects.forEach((regionSel, index) => {
-            $(regionSel).change(() => {
-                const regionId = $(regionSel).val();
+            $(sel).off('change').on('change', () => {
+                const regionId = $(sel).val();
                 const serverSel = serverSelects[index];
                 $(serverSel).html('<option value="">Select Server</option>');
                 if (regionId) {
@@ -122,23 +119,20 @@ function loadDashboard() {
         $('#character-skin').html('<option value="">Select Skin</option>');
         for (let i = 1; i <= 30; i++) {
             $('#character-skin').append(`<option value="skin${i}">Skin ${i}</option>`);
-        }
+        });
 
+        const catalog = await new Promise((resolve, reject) => {
+            PlayFabClientSDK.GetCatalogItems({ CatalogVersion: 'Main' }, (result, error) => error ? reject(error) : resolve(result));
+        });
         $('#store-items').empty();
-        PlayFabClientSDK.GetCatalogItems({ CatalogVersion: 'Main' }, (catResult, catError) => {
-            if (catError) {
-                console.error('GetCatalogItems error:', catError);
-                return;
-            }
-            catResult.data.Catalog.forEach(item => {
-                $('#store-items').append(`
-                    <div class="card p-4">
-                        <h5 class="text-lg font-medium">${item.DisplayName}</h5>
-                        <p class="text-gray-600">MC: ${item.VirtualCurrencyPrices?.MC || 0}, MB: ${item.VirtualCurrencyPrices?.MB || 0}</p>
-                        <button class="bg-black text-white px-4 py-2 rounded btn buy-item" data-item-id="${item.ItemId}">Buy</button>
-                    </div>
-                `);
-            });
+        catalog.data.Catalog.forEach(item => {
+            $('#store-items').append(`
+                <div class="card p-4">
+                    <h5 class="text-lg font-medium">${item.DisplayName}</h5>
+                    <p class="text-gray-600">MC: ${item.VirtualCurrencyPrices?.MC || 0}, MB: ${item.VirtualCurrencyPrices?.MB || 0}</p>
+                    <button class="bg-black text-white px-4 py-2 rounded btn buy-item" data-item-id="${item.ItemId}">Buy</button>
+                </div>
+            `);
         });
 
         $('#crates').empty();
@@ -153,54 +147,52 @@ function loadDashboard() {
             `);
         });
 
-        PlayFabClientSDK.GetPlayerData({ Keys: ['adminRole'] }, (roleResult, roleError) => {
-            if (!roleError && roleResult.data.Data.adminRole) {
-                $('#dashboard').prepend('<button id="admin-panel-btn" class="w-full bg-yellow-500 text-white p-2 rounded mb-6 btn">Admin Panel</button>');
-            }
+        const adminRole = await new Promise((resolve, reject) => {
+            PlayFabClientSDK.GetPlayerData({ Keys: ['adminRole'] }, (result, error) => error ? reject(error) : resolve(result));
         });
-    });
-
-    PlayFabClientSDK.GetObjects({
-        Entity: { Id: playFabId, Type: 'title_player_account' },
-        ObjectNames: ['character_us-medley', 'character_us-colma', 'character_mena-medley', 'character_mena-colma']
-    }, (result, error) => {
-        if (error) {
-            console.error('GetObjects error:', error);
-            alert(`Error loading characters: ${error.errorMessage}`);
-            return;
+        if (adminRole.data.Data.adminRole) {
+            $('#admin-panel-btn').remove();
+            $('#dashboard').prepend('<button id="admin-panel-btn" class="w-full bg-yellow-500 text-white p-2 rounded mb-6 btn">Admin Panel</button>');
         }
 
-        PlayFabClientSDK.GetUserInventory({}, (invResult, invError) => {
-            if (invError) {
-                console.error('GetUserInventory error:', invError);
-                return;
-            }
-
-            const tableBody = $('#characters-table');
-            tableBody.empty();
-            const servers = [
-                { id: 'us-medley', name: 'Medley', region: 'US' },
-                { id: 'us-colma', name: 'Colma', region: 'US' },
-                { id: 'mena-medley', name: 'Medley', region: 'MENA' },
-                { id: 'mena-colma', name: 'Colma', region: 'MENA' }
-            ];
-            servers.forEach(server => {
-                const character = result.data.Objects[`character_${server.id}`]?.DataObject || {};
-                tableBody.append(`
-                    <tr class="bg-white">
-                        <td class="border p-2">${server.region}</td>
-                        <td class="border p-2">${server.name}</td>
-                        <td class="border p-2">${character.name || 'None'}</td>
-                        <td class="border p-2">${character.skin || 'None'}</td>
-                        <td class="border p-2">${character.job || 'None'}</td>
-                        <td class="border p-2">${character.faction || 'None'}</td>
-                        <td class="border p-2">${character.metrocoins || 0}</td>
-                        <td class="border p-2">${character.metrobucks || 0}</td>
-                    </tr>
-                `);
-            });
+        const objects = await new Promise((resolve, reject) => {
+            PlayFabClientSDK.GetObjects({
+                Entity: { Id: playFabId, Type: 'title_player_account' },
+                ObjectNames: ['character_us-medley', 'character_us-colma', 'character_mena-medley', 'character_mena-colma']
+            }, (result, error) => error ? reject(error) : resolve(result));
         });
-    });
+
+        const inventory = await new Promise((resolve, reject) => {
+            PlayFabClientSDK.GetUserInventory({}, (result, error) => error ? reject(error) : resolve(result));
+        });
+
+        const tableBody = $('#characters-table');
+        tableBody.empty();
+        const servers = [
+            { id: 'us-medley', name: 'Medley', region: 'US' },
+            { id: 'us-colma', name: 'Colma', region: 'US' },
+            { id: 'mena-medley', name: 'Medley', region: 'MENA' },
+            { id: 'mena-colma', name: 'Colma', region: 'MENA' }
+        ];
+        servers.forEach(server => {
+            const character = objects.data.Objects[`character_${server.id}`]?.DataObject || {};
+            tableBody.append(`
+                <tr class="bg-white">
+                    <td class="border p-2">${server.region}</td>
+                    <td class="border p-2">${server.name}</td>
+                    <td class="border p-2">${character.name || 'None'}</td>
+                    <td class="border p-2">${character.skin || 'None'}</td>
+                    <td class="border p-2">${character.job || 'None'}</td>
+                    <td class="border p-2">${character.faction || 'None'}</td>
+                    <td class="border p-2">${character.metrocoins ?? 0}</td>
+                    <td class="border p-2">${character.metrobucks ?? 0}</td>
+                </tr>
+            `);
+        });
+    } catch (err) {
+        console.error('Dashboard error:', err);
+        alert('Error loading dashboard. Check console for details.');
+    }
 }
 
 $('#create-character-form').submit((e) => {
@@ -211,7 +203,10 @@ $('#create-character-form').submit((e) => {
     const skin = $('#character-skin').val();
     const job = $('#character-job').val();
     const faction = $('#character-faction').val();
-
+    if (!serverId || !name || !skin || !job || !faction) {
+        alert('Please fill all fields.');
+        return;
+    }
     PlayFabClientSDK.GetObjects({
         Entity: { Id: playFabId, Type: 'title_player_account' },
         ObjectNames: [`character_${serverId}`]
@@ -221,19 +216,17 @@ $('#create-character-form').submit((e) => {
             alert(`Error checking character: ${error.errorMessage}`);
             return;
         }
-
         if (result.data.Objects[`character_${serverId}`]) {
             alert('Character already exists for this server!');
             return;
         }
-
         PlayFabClientSDK.SetObjects({
             Entity: { Id: playFabId, Type: 'title_player_account' },
             Objects: [{
                 ObjectName: `character_${serverId}`,
                 DataObject: {
                     name, skin, job, faction,
-                    metrocoins: 0, metrobucks: 0,
+                    metrocoins: 100, metrobucks: 1000,
                     inventory: [],
                     lastDailyCrate: 0,
                     gangId: null
@@ -257,7 +250,10 @@ $('#create-gang-form').submit((e) => {
     const playFabId = localStorage.getItem('playFabId');
     const serverId = $('#gang-server').val();
     const gangName = $('#gang-name').val();
-
+    if (!serverId || !gangName) {
+        alert('Please select a server and enter a gang name.');
+        return;
+    }
     PlayFabClientSDK.GetObjects({
         Entity: { Id: playFabId, Type: 'title_player_account' },
         ObjectNames: [`character_${serverId}`]
@@ -267,7 +263,6 @@ $('#create-gang-form').submit((e) => {
             alert('No character found for this server.');
             return;
         }
-
         fetch('/api/create-gang', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -281,11 +276,12 @@ $('#create-gang-form').submit((e) => {
             } else {
                 alert('Gang created!');
                 $('#create-gang-form')[0].reset();
+                loadDashboard();
             }
         })
         .catch(err => {
             console.error('Fetch error:', err);
-            alert('Network error');
+            alert('Network error. Check console.');
         });
     });
 });
@@ -295,9 +291,7 @@ $('#inventory-server').change((e) => {
     const playFabId = localStorage.getItem('playFabId');
     const inventoryList = $('#inventory-list');
     inventoryList.empty();
-
     if (!serverId) return;
-
     PlayFabClientSDK.GetObjects({
         Entity: { Id: playFabId, Type: 'title_player_account' },
         ObjectNames: [`character_${serverId}`]
@@ -307,12 +301,10 @@ $('#inventory-server').change((e) => {
             alert(`Error loading inventory: ${error.errorMessage}`);
             return;
         }
-
         if (!result.data.Objects[`character_${serverId}`]) {
             inventoryList.html('<li>No character found for this server.</li>');
             return;
         }
-
         const inventory = result.data.Objects[`character_${serverId}`].DataObject.inventory || [];
         inventory.forEach(item => {
             inventoryList.append(`<li>${item.itemId}: ${item.quantity}</li>`);
@@ -326,7 +318,10 @@ $('#promo-form').submit((e) => {
     const serverId = $('#promo-server').val();
     const code = $('#promo-code').val();
     const promoResult = $('#promo-result');
-
+    if (!serverId || !code) {
+        promoResult.text('Please select a server and enter a code.');
+        return;
+    }
     PlayFabClientSDK.GetObjects({
         Entity: { Id: playFabId, Type: 'title_player_account' },
         ObjectNames: [`character_${serverId}`]
@@ -336,7 +331,6 @@ $('#promo-form').submit((e) => {
             promoResult.text('Error: No character found.');
             return;
         }
-
         fetch('/api/redeem-promo', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -354,7 +348,7 @@ $('#promo-form').submit((e) => {
         })
         .catch(err => {
             console.error('Fetch error:', err);
-            promoResult.text('Network error');
+            promoResult.text('Network error. Check console.');
         });
     });
 });
@@ -363,12 +357,10 @@ $(document).on('click', '.buy-item', function() {
     const playFabId = localStorage.getItem('playFabId');
     const serverId = $('#store-server').val();
     const itemId = $(this).data('item-id');
-
     if (!serverId) {
         alert('Select a server first!');
         return;
     }
-
     fetch('/api/purchase-item', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -386,7 +378,7 @@ $(document).on('click', '.buy-item', function() {
     })
     .catch(err => {
         console.error('Fetch error:', err);
-        alert('Network error');
+        alert('Network error. Check console.');
     });
 });
 
@@ -394,12 +386,10 @@ $(document).on('click', '.open-crate', function() {
     const playFabId = localStorage.getItem('playFabId');
     const serverId = $('#crate-server').val();
     const crateId = $(this).data('crate-id');
-
     if (!serverId) {
         alert('Select a server first!');
         return;
     }
-
     fetch('/api/open-crate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -417,19 +407,17 @@ $(document).on('click', '.open-crate', function() {
     })
     .catch(err => {
         console.error('Fetch error:', err);
-        alert('Network error');
+        alert('Network error. Check console.');
     });
 });
 
 $('#open-daily-crate').click(() => {
     const playFabId = localStorage.getItem('playFabId');
     const serverId = $('#daily-crate-server').val();
-
     if (!serverId) {
         alert('Select a server first!');
         return;
     }
-
     fetch('/api/open-daily-crate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -447,7 +435,7 @@ $('#open-daily-crate').click(() => {
     })
     .catch(err => {
         console.error('Fetch error:', err);
-        $('#daily-crate-result').text('Network error');
+        $('#daily-crate-result').text('Network error. Check console.');
     });
 });
 
@@ -465,7 +453,10 @@ $('#admin-action-form').submit((e) => {
     const targetId = $('#target-id').val();
     const action = $('#admin-action').val();
     const role = $('#admin-role').val();
-
+    if (!targetId || !action) {
+        $('#admin-result').text('Please fill all fields.');
+        return;
+    }
     fetch('/api/admin-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -482,21 +473,20 @@ $('#admin-action-form').submit((e) => {
     })
     .catch(err => {
         console.error('Fetch error:', err);
-        $('#admin-result').text('Network error');
+        $('#admin-result').text('Network error. Check console.');
     });
 });
 
 $('#admin-action').change((e) => {
     if (e.target.value === 'assign_role') {
-        $('#role-select').show();
+        $('#role-select').removeClass('hidden');
     } else {
-        $('#role-select').hide();
+        $('#role-select').addClass('hidden');
     }
 });
 
 if (localStorage.getItem('playFabId') && localStorage.getItem('sessionTicket')) {
     showDashboard();
-    loadDashboard();
 } else {
     showAuth();
 }
