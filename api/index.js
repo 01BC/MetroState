@@ -19,20 +19,28 @@ app.get('/', (req, res) => {
 app.post('/api/redeem-promo', async (req, res) => {
   const { playFabId, serverId, code } = req.body;
   if (!playFabId || !serverId || !code) {
+    console.error('Missing fields:', { playFabId, serverId, code });
     return res.status(400).json({ error: 'Missing fields' });
   }
 
   try {
     const character = await getCharacter(playFabId, serverId);
-    if (!character) return res.status(400).json({ error: 'Character not found' });
+    if (!character) {
+      console.error('Character not found:', { playFabId, serverId });
+      return res.status(400).json({ error: 'Character not found' });
+    }
 
     const promoData = await getPromoCodes();
     const promo = promoData.codes[code.toUpperCase()];
-    if (!promo) return res.status(400).json({ error: 'Invalid code' });
+    if (!promo) {
+      console.error('Invalid code:', code);
+      return res.status(400).json({ error: 'Invalid code' });
+    }
 
     const redemptionKey = `promo_${code}_${serverId}`;
     const playerData = await getPlayerData(playFabId, [redemptionKey]);
     if (playerData[redemptionKey]) {
+      console.error('Code already redeemed:', { playFabId, code, serverId });
       return res.status(400).json({ error: 'Code already redeemed' });
     }
 
@@ -75,8 +83,10 @@ app.post('/api/redeem-promo', async (req, res) => {
       }, (error, result) => error ? reject(error) : resolve(result));
     });
 
+    console.log('Promo redeemed:', { playFabId, code, serverId });
     res.json({ status: 'success', rewards: promo.rewards });
   } catch (err) {
+    console.error('Promo error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -133,6 +143,7 @@ app.post('/api/purchase-item', async (req, res) => {
     await updateCharacter(playFabId, serverId, character);
     res.json({ status: 'success', itemId });
   } catch (err) {
+    console.error('Purchase error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -182,6 +193,7 @@ app.post('/api/open-crate', async (req, res) => {
     await updateCharacter(playFabId, serverId, character);
     res.json({ status: 'success', rewards });
   } catch (err) {
+    console.error('Crate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -230,6 +242,7 @@ app.post('/api/open-daily-crate', async (req, res) => {
     await updateCharacter(playFabId, serverId, character);
     res.json({ status: 'success', reward });
   } catch (err) {
+    console.error('Daily crate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -267,6 +280,7 @@ app.post('/api/create-gang', async (req, res) => {
     await updateCharacter(playFabId, serverId, character);
     res.json({ status: 'success', gangId });
   } catch (err) {
+    console.error('Gang error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -300,91 +314,137 @@ app.post('/api/admin-action', async (req, res) => {
 
     res.json({ status: 'success' });
   } catch (err) {
+    console.error('Admin error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 async function getCharacter(playFabId, serverId) {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetObjects({
-      Entity: { Id: playFabId, Type: 'title_player_account' },
-      ObjectNames: [`character_${serverId}`]
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return result.data.Objects[`character_${serverId}`]?.DataObject;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetObjects({
+        Entity: { Id: playFabId, Type: 'title_player_account' },
+        ObjectNames: [`character_${serverId}`]
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return result.data.Objects[`character_${serverId}`]?.DataObject;
+  } catch (err) {
+    console.error('GetCharacter error:', err);
+    throw err;
+  }
 }
 
 async function updateCharacter(playFabId, serverId, character) {
-  await new Promise((resolve, reject) => {
-    PlayFabAdmin.SetObjects({
-      Entity: { Id: playFabId, Type: 'title_player_account' },
-      Objects: [{ ObjectName: `character_${serverId}`, DataObject: character }]
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      PlayFabAdmin.SetObjects({
+        Entity: { Id: playFabId, Type: 'title_player_account' },
+        Objects: [{ ObjectName: `character_${serverId}`, DataObject: character }]
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+  } catch (err) {
+    console.error('UpdateCharacter error:', err);
+    throw err;
+  }
 }
 
 async function getCatalog() {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetCatalogItems({
-      CatalogVersion: 'Main'
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return result.data.Catalog;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetCatalogItems({
+        CatalogVersion: 'Main'
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return result.data.Catalog;
+  } catch (err) {
+    console.error('GetCatalog error:', err);
+    throw err;
+  }
 }
 
 async function getCrates() {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetTitleData({
-      Keys: ['CratesTitleData']
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return JSON.parse(result.data.Data.CratesTitleData).Crates;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetTitleData({
+        Keys: ['CratesTitleData']
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return JSON.parse(result.data.Data.CratesTitleData).Crates;
+  } catch (err) {
+    console.error('GetCrates error:', err);
+    throw err;
+  }
 }
 
 async function getDailyCrate() {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetTitleData({
-      Keys: ['DailyCrateData']
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return JSON.parse(result.data.Data.DailyCrateData).DailyCrate;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetTitleData({
+        Keys: ['DailyCrateData']
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return JSON.parse(result.data.Data.DailyCrateData).DailyCrate;
+  } catch (err) {
+    console.error('GetDailyCrate error:', err);
+    throw err;
+  }
 }
 
 async function getGangs() {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetTitleData({
-      Keys: ['Gangs']
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return JSON.parse(result.data.Data.Gangs);
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetTitleData({
+        Keys: ['Gangs']
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return JSON.parse(result.data.Data.Gangs);
+  } catch (err) {
+    console.error('GetGangs error:', err);
+    throw err;
+  }
 }
 
 async function getAdminRoles() {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetTitleData({
-      Keys: ['AdminRoles']
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return JSON.parse(result.data.Data.AdminRoles);
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetTitleData({
+        Keys: ['AdminRoles']
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return JSON.parse(result.data.Data.AdminRoles);
+  } catch (err) {
+    console.error('GetAdminRoles error:', err);
+    throw err;
+  }
 }
 
 async function getPlayerData(playFabId, keys) {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetPlayerData({
-      PlayFabId,
-      Keys: keys
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return result.data.Data;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetPlayerData({
+        PlayFabId,
+        Keys: keys
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return result.data.Data;
+  } catch (err) {
+    console.error('GetPlayerData error:', err);
+    throw err;
+  }
 }
 
 async function getPromoCodes() {
-  const result = await new Promise((resolve, reject) => {
-    PlayFabAdmin.GetTitleData({
-      Keys: ['promoCodes']
-    }, (error, result) => error ? reject(error) : resolve(result));
-  });
-  return JSON.parse(result.data.Data.promoCodes);
+  try {
+    const result = await new Promise((resolve, reject) => {
+      PlayFabAdmin.GetTitleData({
+        Keys: ['promoCodes']
+      }, (error, result) => error ? reject(error) : resolve(result));
+    });
+    return JSON.parse(result.data.Data.promoCodes);
+  } catch (err) {
+    console.error('GetPromoCodes error:', err);
+    throw err;
+  }
 }
 
 const port = process.env.PORT || 3000;
